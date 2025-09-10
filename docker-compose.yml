@@ -1,5 +1,6 @@
 services:
   calculator:
     build: .
+    command: ["python", "src/calculator.py"]
     volumes:
       - .:/app

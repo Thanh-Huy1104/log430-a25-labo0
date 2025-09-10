@@ -1,0 +1,86 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+concurrency:
+  group: prod-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            set -euo pipefail
+
+            # --- Config for YOUR repo ---
+            BRANCH="main"
+            REPO_URL="https://github.com/Thanh-Huy1104/log430-a25-labo0"
+            REPO_NAME="log430-a25-labo0"
+            APP_DIR="$HOME/apps"
+            # ----------------------------
+
+            mkdir -p "$APP_DIR"
+            cd "$APP_DIR"
+
+            if [ -d "$REPO_NAME/.git" ]; then
+              cd "$REPO_NAME"
+              git fetch --all -p
+              git reset --hard "origin/${BRANCH}"
+            else
+              git clone "$REPO_URL" "$REPO_NAME"
+              cd "$REPO_NAME"
+              git checkout "$BRANCH"
+            fi
+
+            # Prefer Compose if present; support both v2 ("docker compose") and v1 ("docker-compose")
+            if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
+              if docker compose version >/dev/null 2>&1; then
+                docker compose down || true
+                docker compose up -d --build
+              else
+                docker-compose down || true
+                docker-compose up -d --build
+              fi
+            else
+              REV=$(git rev-parse --short HEAD)
+              IMAGE="labo0-calculator:${REV}"
+              docker build -t "$IMAGE" .
+              docker tag "$IMAGE" labo0-calculator:latest
+              docker rm -f labo0-calculator-run >/dev/null 2>&1 || true
+              docker run -d --name labo0-calculator-run labo0-calculator:latest
+            fi
+
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"

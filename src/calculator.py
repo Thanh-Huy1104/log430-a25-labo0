@@ -3,6 +3,7 @@ Calculator app
 SPDX - License - Identifier: LGPL - 3.0 - or -later
 Auteurs : Gabriel C. Ullmann, Fabio Petrillo, 2025
 """
+
 class Calculator:
     def __init__(self):
         self.last_result = 0
